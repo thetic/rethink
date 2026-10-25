@@ -32,13 +32,6 @@ import { Enum } from '@/util/enum'
 // confirmed exact against the app (58%/58%). Reset writes 100 to the byte; the write value itself
 // is inherited from the sibling's confirmed behavior, not independently captured here.
 //
-// Night View (byte 30, a separate F010 command family, not F017): reads 0/2/3 for Off/Sunset to
-// Sunrise/Set Time; the write command's mode byte is 0/1/2 for the same three. The command always
-// carries full state (mode, level, schedule) in one packet. Level and the Set Time schedule have
-// no readback anywhere, so they're cached rather than read: mode starts accurate from the first
-// real read, level defaults to the documented factory value (30%), start/end default to values
-// observed live. Set Time's hour is `(hour24+4) % 24`, minute verbatim.
-//
 // All three ice makers share one status scheme — 0=Off, 1=Making ice, 2=Full ice bin, 3=Quiet
 // Mode — confirmed by this model's own modelJson (iceMaker1/3/4Status, matching byte 32/34/41
 // respectively by their paired feature: iceMaker3Status pairs with craftIceMode, iceMaker4Status
@@ -53,17 +46,13 @@ import { Enum } from '@/util/enum'
 // correlated with a measured 24oz (~710 ml) dispense (0 -> 998), not an exact match, plausibly
 // because icemaker fill water shares the counter. Other records are ice/door counters, undecoded.
 //
-// Sabbath Set Schedule (app-only — the physical panel's Freezer+Wi-Fi hold only reaches the plain
-// on/off) is also F010, with its own sub-marker (0x09 vs Night View's 0x05): ON is
-// `10 01 1A0A0901 2400 1A0A0901 2400`, OFF is `10 00` + 12 zero bytes, confirmed byte-for-byte.
-// Editing the app's offset/day/before-after settings and reapplying produced the identical ON
-// command, and the app warns that network connectivity may affect the schedule — both point at
-// cloud-side scheduling, so this is write-only and almost certainly bridge-mode-only.
+// Sabbath's separate Set Schedule option (F010, sub-marker 0x09) is confirmed byte-for-byte but not
+// exposed here: editing the app's schedule and reapplying always produced the identical command, and
+// the app warns that network connectivity may affect it - both point at cloud-side scheduling, which
+// would make it bridge-mode-only. rethink's standalone mode is primary, so it's left out.
 //
 // start() sends the same initial query as every other 0x10-class fridge in this family, not
 // independently confirmed as required on this model.
-const NIGHT_VIEW_READ_MODE = Enum.of({ Off: 0, 'Sunset to Sunrise': 2, 'Set Time': 3 })
-const NIGHT_VIEW_WRITE_MODE: Record<string, number> = { Off: 0, 'Sunset to Sunrise': 1, 'Set Time': 2 }
 const CRAFT_ICE_MODE = Enum.of({ Off: 0, '3 ICE': 1, '6 ICE': 2 })
 const ICE_MAKER_STATUS = Enum.of({ Off: 0, 'Making ice': 1, 'Full ice bin': 2, 'Quiet Mode': 3 })
 
@@ -104,7 +93,6 @@ const COMMAND_LENGTH = 118
 
 const CLASS_BYTE = 0x10
 const RECORD_LENGTH = 43
-const NIGHT_VIEW_OFFSET = 30
 const FRESH_AIR_FILTER = 35
 const WATER_FILTER = 36
 const WATER_DISPENSED_RECORD = 0x21
@@ -130,14 +118,6 @@ function freezerEncode(unit: TemperatureUnit, display: number): number {
 export default class Device extends AABBDevice {
     readonly deviceConfig: DeviceDiscovery
     temperatureUnit: TemperatureUnit | undefined
-
-    // Defaults for Night View's uncached fields — see header comment.
-    nightViewMode = 'Off'
-    nightViewLevel = 30
-    nightViewStartHour = 21
-    nightViewStartMinute = 30
-    nightViewEndHour = 6
-    nightViewEndMinute = 15
 
     constructor(HA: Connection, thinq: Thinq2Device, meta: Metadata) {
         super(HA, thinq, true)
@@ -200,17 +180,6 @@ export default class Device extends AABBDevice {
                         payload_off: 'OFF',
                         entity_category: 'config',
                     },
-                    sabbath_set_schedule: {
-                        platform: 'switch',
-                        icon: 'mdi:calendar-clock',
-                        unique_id: '$deviceid-sabbath_set_schedule',
-                        command_topic: '$this/sabbath_set_schedule/set',
-                        name: 'Sabbath Set Schedule',
-                        payload_on: 'ON',
-                        payload_off: 'OFF',
-                        optimistic: true,
-                        entity_category: 'config',
-                    },
                     smart_learner: {
                         platform: 'switch',
                         icon: 'mdi:brain',
@@ -230,47 +199,6 @@ export default class Device extends AABBDevice {
                         command_topic: '$this/craft_ice/set',
                         name: 'Craft Ice',
                         options: CRAFT_ICE_MODE.options,
-                        entity_category: 'config',
-                    },
-                    night_view: {
-                        platform: 'select',
-                        icon: 'mdi:weather-night',
-                        unique_id: '$deviceid-night_view',
-                        state_topic: '$this/night_view',
-                        command_topic: '$this/night_view/set',
-                        name: 'Night View',
-                        options: NIGHT_VIEW_READ_MODE.options,
-                        entity_category: 'config',
-                    },
-                    night_view_level: {
-                        platform: 'number',
-                        icon: 'mdi:brightness-6',
-                        unique_id: '$deviceid-night_view_level',
-                        command_topic: '$this/night_view_level/set',
-                        name: 'Night View level',
-                        unit_of_measurement: '%',
-                        min: 10,
-                        max: 90,
-                        step: 10,
-                        optimistic: true,
-                        entity_category: 'config',
-                    },
-                    night_view_start_time: {
-                        platform: 'time',
-                        icon: 'mdi:clock-start',
-                        unique_id: '$deviceid-night_view_start_time',
-                        command_topic: '$this/night_view_start_time/set',
-                        name: 'Night View start time',
-                        optimistic: true,
-                        entity_category: 'config',
-                    },
-                    night_view_end_time: {
-                        platform: 'time',
-                        icon: 'mdi:clock-end',
-                        unique_id: '$deviceid-night_view_end_time',
-                        command_topic: '$this/night_view_end_time/set',
-                        name: 'Night View end time',
-                        optimistic: true,
                         entity_category: 'config',
                     },
                     fresh_air_filter: {
@@ -404,44 +332,6 @@ export default class Device extends AABBDevice {
         this.publishProperty('mini_cubed_ice', ICE_MAKER_STATUS.map(curStatus[MINI_CUBED_ICE_OFFSET]))
         this.publishProperty('craft_ice_status', ICE_MAKER_STATUS.map(curStatus[CRAFT_ICE_STATUS_OFFSET]))
         this.publishProperty('crushed_cubed_ice', ICE_MAKER_STATUS.map(curStatus[CRUSHED_CUBED_ICE_OFFSET]))
-
-        const mode = NIGHT_VIEW_READ_MODE.map(curStatus[NIGHT_VIEW_OFFSET])
-        if (mode) this.nightViewMode = mode // keeps the write-side cache in sync with reality
-        this.publishProperty('night_view', mode)
-    }
-
-    // Sabbath's own F010 sub-command — see header comment for why nothing beyond on/off is sent.
-    sendSabbathSchedule(enabled: boolean) {
-        this.send(Buffer.from(enabled ? 'f010011a0a090124001a0a09012400' : 'f01000000000000000000000000000', 'hex'))
-    }
-
-    // Resends full cached state on every write — see header comment.
-    sendNightView() {
-        let sub: number[]
-        if (this.nightViewMode === 'Off') {
-            sub = new Array(13).fill(0)
-        } else if (this.nightViewMode === 'Sunset to Sunrise') {
-            sub = [0x1a, 0x0a, 0x05, 0x01, 0x2c, 0x00, 0x1a, 0x0a, 0x05, 0x0e, 0x0e, 0x00, 0x00]
-        } else {
-            sub = [
-                0x1a,
-                0x0a,
-                0x05,
-                (this.nightViewStartHour + 4) % 24,
-                this.nightViewStartMinute,
-                0x00,
-                0x1a,
-                0x0a,
-                0x05,
-                (this.nightViewEndHour + 4) % 24,
-                this.nightViewEndMinute,
-                0x00,
-                0x00,
-            ]
-        }
-        this.send(
-            Buffer.from([0xf0, 0x10, 0x02, NIGHT_VIEW_WRITE_MODE[this.nightViewMode], ...sub, this.nightViewLevel]),
-        )
     }
 
     command(fields: Record<number, number>) {
@@ -464,8 +354,6 @@ export default class Device extends AABBDevice {
             this.command({ 3: mqttValue === 'ON' ? 2 : 1 })
         } else if (prop === 'sabbath_mode') {
             this.command({ 14: mqttValue === 'ON' ? 1 : 0 })
-        } else if (prop === 'sabbath_set_schedule') {
-            this.sendSabbathSchedule(mqttValue === 'ON')
         } else if (prop === 'smart_learner') {
             this.command({ 17: mqttValue === 'ON' ? 1 : 0 })
         } else if (prop === 'craft_ice') {
@@ -475,23 +363,6 @@ export default class Device extends AABBDevice {
             this.command({ [FRESH_AIR_FILTER]: 100 })
         } else if (prop === 'water_filter_reset') {
             this.command({ [WATER_FILTER]: 100 })
-        } else if (prop === 'night_view') {
-            if (mqttValue in NIGHT_VIEW_WRITE_MODE) this.nightViewMode = mqttValue
-            this.sendNightView()
-        } else if (prop === 'night_view_level') {
-            this.nightViewLevel = Number(mqttValue)
-            this.sendNightView()
-        } else if (prop === 'night_view_start_time' || prop === 'night_view_end_time') {
-            const [hour, minute] = mqttValue.split(':').map(Number)
-            if (prop === 'night_view_start_time') {
-                this.nightViewStartHour = hour
-                this.nightViewStartMinute = minute
-            } else {
-                this.nightViewEndHour = hour
-                this.nightViewEndMinute = minute
-            }
-            this.nightViewMode = 'Set Time' // a schedule is meaningless in any other mode
-            this.sendNightView()
         } else {
             console.warn(`Unknown property ${prop}`)
         }

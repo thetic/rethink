@@ -21,17 +21,11 @@ const FRAME_ICE_PLUS_ON = buf(
 const FRAME_SABBATH_ON = buf(
     'AA5C10EC020B060202020200000001FFFFFF00FFFF01FFFFFFFFFFFFFF00010101FF020001FF003A3AFFFFFFFF0100020B060102020200000001FFFFFF01FFFF01FFFFFFFFFFFFFF00010101FF020001FF003A3AFFFFFFFF01005BBB',
 )
-const FRAME_NIGHT_VIEW_OFF = buf(
-    'AA5C10EC020B060102020200000001FFFFFF00FFFF01FFFFFFFFFFFFFF00040105FF020001FF003A3AFFFFFFFF0100020B060102020200000001FFFFFF00FFFF01FFFFFFFFFFFFFF00050105FF000001FF003A3AFFFFFFFF01004CBB',
-)
 const FRAME_CRAFT_ICE_6ICE = buf(
     'AA5C10EC020A050102020200000001FFFFFF00FFFF01FFFFFFFFFFFFFF000D0101FF020001FF003A3AFFFFFFFF0100020A050102020200000001FFFFFF00FFFF01FFFFFFFFFFFFFF020D0101FF020001FF013A3AFFFFFFFF010076BB',
 )
 const FRAME_CRAFT_ICE_3ICE = buf(
     'AA5C10EC0204050102020200000001FFFFFF00FFFF01FFFFFFFFFFFFFF02120101FF030002FF013A3AFFFFFFFF02000204050102020200000001FFFFFF00FFFF01FFFFFFFFFFFFFF01120101FF030002FF013A3AFFFFFFFF02007CBB',
-)
-const FRAME_SET_TIME_MODE = buf(
-    'AA5C10EC020A050102020200000001FFFFFF00FFFF01FFFFFFFFFFFFFF000F0101FF020001FF003A3AFFFFFFFF0100020A050102020200000001FFFFFF00FFFF01FFFFFFFFFFFFFF00100101FF030001FF003A3AFFFFFFFF010073BB',
 )
 const FRAME_SMART_LEARNER_OFF = buf(
     'AA5C10EC0204050102020200000001FFFFFF00FFFF01FFFFFFFFFFFFFF01120101FF030002FF013A3AFFFFFFFF02000204050102020200000001FFFFFF00FFFF00FFFFFFFFFFFFFF01120101FF030002FF013A3AFFFFFFFF020072BB',
@@ -133,18 +127,6 @@ describe(MODEL_ID, () => {
         assert.equal(props(ha).smart_learner, 'OFF')
     })
 
-    test('Night View mode decodes all three states', () => {
-        const { ha, thinq } = makeDevice()
-        thinq.emit('data', FRAME_BASELINE)
-        assert.equal(props(ha).night_view, 'Sunset to Sunrise')
-
-        thinq.emit('data', FRAME_NIGHT_VIEW_OFF)
-        assert.equal(props(ha).night_view, 'Off')
-
-        thinq.emit('data', FRAME_SET_TIME_MODE)
-        assert.equal(props(ha).night_view, 'Set Time')
-    })
-
     test('Craft Ice decodes all three states', () => {
         const { ha, thinq } = makeDevice()
         thinq.emit('data', FRAME_BASELINE)
@@ -180,16 +162,6 @@ describe(MODEL_ID, () => {
         thinq.emit('data', FRAME_BOTH_FULL)
         assert.equal(props(ha).crushed_cubed_ice, 'Full ice bin')
         assert.equal(props(ha).mini_cubed_ice, 'Full ice bin')
-    })
-
-    test('Sabbath Set Schedule commands match what the app sent, byte for byte', () => {
-        const { dev, thinq } = makeDevice()
-
-        dev.setProperty('sabbath_set_schedule', 'ON')
-        assert.equal(lastSent(thinq), 'AA13F010011A0A090124001A0A0901240037BB')
-
-        dev.setProperty('sabbath_set_schedule', 'OFF')
-        assert.equal(lastSent(thinq), 'AA13F01000000000000000000000000000E8BB')
     })
 
     test('fridge/freezer setpoints decode in both F and C', () => {
@@ -271,35 +243,5 @@ describe(MODEL_ID, () => {
             dev.setProperty(prop, value)
             assert.equal(lastSent(thinq), expected, `${prop}=${value}`)
         }
-    })
-
-    // Builds on prior state in capture order — Night View resends full state on every write, so
-    // each step's expected bytes depend on what the previous step set.
-    test('Night View commands match what the app sent, byte for byte, across a stateful sequence', () => {
-        const { dev, thinq } = makeDevice()
-
-        dev.setProperty('night_view', 'Sunset to Sunrise')
-        assert.equal(lastSent(thinq), 'AA16F01002011A0A05012C001A0A050E0E00001E29BB')
-
-        dev.setProperty('night_view_level', '70')
-        assert.equal(lastSent(thinq), 'AA16F01002011A0A05012C001A0A050E0E000046F1BB')
-
-        dev.setProperty('night_view', 'Off')
-        assert.equal(lastSent(thinq), 'AA16F010020000000000000000000000000000465DBB')
-
-        dev.setProperty('night_view', 'Sunset to Sunrise')
-        assert.equal(lastSent(thinq), 'AA16F01002011A0A05012C001A0A050E0E000046F1BB')
-
-        dev.setProperty('night_view_end_time', '06:00:00')
-        dev.setProperty('night_view_start_time', '21:00:00')
-        assert.equal(lastSent(thinq), 'AA16F01002021A0A050100001A0A050A0000004632BB')
-
-        dev.setProperty('night_view_end_time', '05:00:00')
-        dev.setProperty('night_view_start_time', '22:00:00')
-        assert.equal(lastSent(thinq), 'AA16F01002021A0A050200001A0A05090000004632BB')
-
-        dev.setProperty('night_view_end_time', '06:15:00')
-        dev.setProperty('night_view_start_time', '21:30:00')
-        assert.equal(lastSent(thinq), 'AA16F01002021A0A05011E001A0A050A0F000046C1BB')
     })
 })
