@@ -22,37 +22,20 @@ import { Enum } from '@/util/enum'
 // (0/1), smartCare[17] (Smart Learner, 0/1), craftIce[25] (0=Off 2=6 ICE 1=3 ICE, read and write).
 // Other STATUS_FIELDS entries read constant or implausible, left undecoded.
 //
-// Celsius is not linear (not fridge_common's shared `8-raw`/`-14-raw`, nor any simple formula —
-// those turned out unconfirmed everywhere they're used, see anszom/rethink#223) and is looked up
-// from this exact model's own modelJson definition (FRIDGE_C_TABLE/FREEZER_C_TABLE below), which
-// covers the full range the C-mode entities expose. The one point independently confirmed live via
-// the physical Refrigerator+Freezer panel toggle (raw 5 -> 4°C/-17°C) matches the table exactly.
+// Celsius isn't linear, so it's looked up from this model's own modelJson (FRIDGE_C_TABLE/
+// FREEZER_C_TABLE below); spot-confirmed live via the panel toggle (raw 5 -> 4°C/-17°C).
 //
-// Filter life lives outside STATUS_FIELDS: bytes 35/36 are fresh air/water filter life percent,
-// confirmed exact against the app (58%/58%). Reset writes 100 to the byte; the write value itself
-// is inherited from the sibling's confirmed behavior, not independently captured here.
-//
-// All three ice makers share one status scheme — 0=Off, 1=Making ice, 2=Full ice bin, 3=Quiet
-// Mode — confirmed by this model's own modelJson (iceMaker1/3/4Status, matching byte 32/34/41
-// respectively by their paired feature: iceMaker3Status pairs with craftIceMode, iceMaker4Status
-// is labeled Cubed Ice Mini). Live confirmation varies: byte 41 (Mini Cubed Ice) caught a live
-// 1->2 transition cross-checked against the app; byte 34 (Craft Ice) read 1 while the app showed
-// "Making ice" and 0 when Craft Ice itself is off; byte 32 (Crushed/Cubed Ice) is a correlated
-// snapshot at 2, not a caught transition. Off and Quiet Mode are sourced from modelJson only, not
-// independently observed on this fridge.
+// Bytes beyond STATUS_FIELDS: [35]/[36] fresh air/water filter life percent, confirmed against the
+// app (58%/58%), reset writes 100. [32]/[34]/[41] ice maker status (0=Off, 1=Making ice, 2=Full ice
+// bin, 3=Quiet Mode), from this model's modelJson; byte 41 (Mini Cubed Ice) caught a live transition
+// against the app, the others are spot-checked or correlated snapshots.
 //
 // 10C5 usage reports (push ~every 15 min): `<seq> <count>`, then `<count>` 6-byte records of
-// `<id> <recent: u16> <?> <total: u16>`. Record 0x21 is water dispensed in millilitres —
-// correlated with a measured 24oz (~710 ml) dispense (0 -> 998), not an exact match, plausibly
-// because icemaker fill water shares the counter. Other records are ice/door counters, undecoded.
+// `<id> <recent: u16> <?> <total: u16>`. Record 0x21 is water dispensed in millilitres (correlated
+// with a measured dispense, not exact). Other records are ice/door counters, undecoded.
 //
-// Sabbath's separate Set Schedule option (F010, sub-marker 0x09) is confirmed byte-for-byte but not
-// exposed here: editing the app's schedule and reapplying always produced the identical command, and
-// the app warns that network connectivity may affect it - both point at cloud-side scheduling, which
-// would make it bridge-mode-only. rethink's standalone mode is primary, so it's left out.
-//
-// start() sends the same initial query as every other 0x10-class fridge in this family, not
-// independently confirmed as required on this model.
+// Sabbath's Set Schedule option (F010, sub-marker 0x09) is confirmed byte-for-byte but left out:
+// it's write-only and cloud-scheduled, making it bridge-mode-only, which rethink doesn't support.
 const CRAFT_ICE_MODE = Enum.of({ Off: 0, '3 ICE': 1, '6 ICE': 2 })
 const ICE_MAKER_STATUS = Enum.of({ Off: 0, 'Making ice': 1, 'Full ice bin': 2, 'Quiet Mode': 3 })
 

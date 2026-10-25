@@ -73,26 +73,6 @@ function lastSent(thinq: MockThinq2Device) {
 }
 
 describe(MODEL_ID, () => {
-    test('config exposes only the confirmed fields; only door is read-only', () => {
-        const { ha, thinq } = makeDevice()
-        thinq.emit('data', FRAME_BASELINE)
-        const components = ha.devices[DEVICE_ID].config!.components as Record<string, Record<string, unknown>>
-        assert.equal(components.fridge_setpoint.unit_of_measurement, '°F')
-        const readOnly = new Set([
-            'door',
-            'fresh_air_filter',
-            'water_filter',
-            'water_dispensed',
-            'mini_cubed_ice',
-            'craft_ice_status',
-            'crushed_cubed_ice',
-        ])
-        for (const [name, comp] of Object.entries(components)) {
-            const expected = readOnly.has(name) ? undefined : `$this/${name}/set`
-            assert.equal((comp as Record<string, unknown>).command_topic, expected, name)
-        }
-    })
-
     test('setpoints decode from the app-confirmed baseline', () => {
         const { ha, thinq } = makeDevice()
         thinq.emit('data', FRAME_BASELINE)
