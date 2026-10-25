@@ -4,6 +4,7 @@ on:
     push:
         branches:
             - master
+            - thetic
     pull_request:
 
 permissions:
