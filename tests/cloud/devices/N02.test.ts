@@ -193,6 +193,29 @@ const EC_RINSE_REFILL_ON = buf(
 
 const STATISTICS_ZERO = buf('aa0b323e000000000070bb')
 
+// Captured from a second N02 on 2026-10-29/30. Its overnight Auto cycle used High Temp,
+// Steam and Night Dry (confirmed by the owner), with BF transitions and CF periodic reports.
+const B2_DOOR_OPEN = buf('AA0032B20008180400000318000000010000020000008280580D0000000001010203050016BB')
+const B2_DOOR_CLOSED = buf('AA0032B20008180400000318000000010000000000008280580D0000000001010203050014BB')
+const BF_DELAYED_START = buf(
+    'AA0032BF00012F0A01050201000318010003180039F48900008A0000000000000001012F020000000000000000000000000000000000450300010400000000530113017A00000400000000000100C811000000FDFD00000015152020FDFD161200000002000120CC01000000000000000000004C15131C0888408107A6BB',
+)
+const CF_WASHING = buf(
+    'AA0032CF002F0A01050202000318010003150000F48900008A00000000000000010000000000000000000000000000000000000000450300010400000000530113017A0000040000000000025EC811000206B4FD0000001519201FFDFD1D120001EC02000120CC01000000000000C9119C024C15131C088840810777BB',
+)
+const CF_RINSING = buf(
+    'AA0032CF002F0A010502030003180100020D0000F48900008A00000000000000010000000000000000000000000000000000000000450300010400000000530113017A00000400000000000306CB110002FFB4AF000000152A20202A5D30120001EC02000120CC01000000000000C6119C014C15131C08884081074ABB',
+)
+const CF_DRYING = buf(
+    'AA0032CF002F0A010502040003180100002C0000F48900008A00000000000000010000000000000000000000000000000000000000450300010400000000530114017A0000040000000000041CCB110002FFB4AF0000001546201F3F6338122F01EC36000120CC01000000000000C7109C014C15131C0888408107A3BB',
+)
+const BF_COMPLETED = buf(
+    'AA0032BF00092F0A01050505000318010000010000F48900008A00000000000000010000000000000000000000000000000000000000450300010400000000530114017A00000400000000000504C3110002FFB4AF000000153220203F6338122F01EC62000120CC01000000000000C90C9C024C15131C0B8147810791BB',
+)
+const MANIFEST_NEEDS_ACK = buf(
+    'AAFF320A005F0000DF00010A86004D0A053230342D3100053230342D3200053230342D33000644572D312D35000644572D332D33000644572D352D3101053230342D3600063230342D313101063230342D313200063230342D3133019601BB',
+)
+
 // Real, undecoded frame types seen this session: the parts-manifest burst (fails the simple AABB
 // checksum, same as N17's), the opcode-echo ack, the post-settings-write marker, and the transition
 // marker D0211 decodes as a tub-clean counter — context here (right after a cancel, value 0) doesn't
@@ -533,6 +556,67 @@ describe('N02', () => {
 
     test('0x3E statistics publish accumulated watt-hours', () => {
         assert.equal(feed([STATISTICS_ZERO]).properties.energy, 0)
+    })
+
+    test('B2 events update the door without a preceding EC report', () => {
+        const { properties, thinq } = feed([B2_DOOR_OPEN])
+        assert.equal(properties.door, 'ON')
+        assert.equal(properties.status, 'Standby')
+        thinq.emit('data', B2_DOOR_CLOSED)
+        assert.equal(properties.door, 'OFF')
+    })
+
+    test('BF reports delayed Auto with the captured current options', () => {
+        const { properties } = feed([BF_DELAYED_START])
+        assert.equal(properties.status, 'Running')
+        assert.equal(properties.process, 'Delayed Start')
+        assert.equal(properties.course, 'Auto')
+        assert.equal(properties.initial_time, 204)
+        assert.equal(properties.remaining_time, 204)
+        assert.equal(properties.delay_start_time, 57)
+        assert.equal(properties.door, 'OFF')
+        assert.equal(properties.night_dry, 'ON')
+        assert.equal(properties.rinse_refill, 'ON')
+        assert.equal(properties.remote_start, 'ON')
+        // Targets are the next HA command's settings, independent of the current panel cycle.
+        assert.equal(properties.target_course, 'Normal')
+    })
+
+    test('CF reports progress through washing, rinsing and drying; BF completion clears the stale minute', () => {
+        const { properties, thinq } = feed([BF_DELAYED_START])
+        for (const [frame, process, remaining] of [
+            [CF_WASHING, 'Washing', 201],
+            [CF_RINSING, 'Rinsing', 133],
+            [CF_DRYING, 'Drying', 44],
+        ] as const) {
+            thinq.emit('data', frame)
+            assert.equal(properties.status, 'Running')
+            assert.equal(properties.process, process)
+            assert.equal(properties.remaining_time, remaining)
+            assert.equal(properties.delay_start_time, 0)
+        }
+        thinq.emit('data', BF_COMPLETED)
+        assert.equal(properties.status, 'End')
+        assert.equal(properties.process, 'End')
+        assert.equal(properties.remaining_time, 0)
+    })
+
+    test('unrecognised or incomplete BF/CF/B2 layouts leave status unchanged', () => {
+        for (const frame of [B2_DOOR_OPEN, BF_DELAYED_START, CF_WASHING]) {
+            const truncated = Buffer.concat([frame.subarray(0, -3), frame.subarray(-2)])
+            assertNoStatusDecoded(feed([truncated]).properties)
+            const wrongHeader = Buffer.from(frame)
+            wrongHeader[frame[3] === 0xbf ? 6 : 4] ^= 1
+            assertNoStatusDecoded(feed([wrongHeader]).properties)
+            const foreign = Buffer.from(frame)
+            foreign[2] = 0x41
+            assertNoStatusDecoded(feed([foreign]).properties)
+        }
+    })
+
+    test('local manifest acknowledgement matches the captured cloud acknowledgement', () => {
+        const { thinq } = feed([MANIFEST_NEEDS_ACK])
+        assert.deepEqual(thinq.sent, [{ cmd: 'ack', type: 1, data: 'AA0AF0000A0400DFC4BB' }])
     })
 
     test('the undecoded frame types this appliance really sends publish nothing', () => {

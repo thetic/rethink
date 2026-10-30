@@ -130,7 +130,7 @@ export default class Device extends AABBDevice {
     readonly deviceConfig: DeviceDiscovery
 
     constructor(HA: Connection, thinq: Thinq2Device, meta: Metadata) {
-        super(HA, thinq, false)
+        super(HA, thinq, true)
         this.deviceConfig = HADevice.config(meta, { name: 'LG Dishwasher' })
 
         this.setConfig(
@@ -558,7 +558,31 @@ export default class Device extends AABBDevice {
     processAABB(buf: Buffer) {
         if (this.processCommonStatus(buf, CLASS_BYTE, STATUS_RECORD_LENGTH, this.processStatus)) return
 
-        if (buf[0] === CLASS_BYTE && buf[1] === 0x3e && buf.length === 7) {
+        if (buf[0] !== CLASS_BYTE) return
+
+        // Door events carry the same 31-byte record as EB/EC, after an extra zero byte.
+        if (buf[1] === 0xb2 && buf.length === 3 + STATUS_RECORD_LENGTH && buf[2] === 0 && buf[4] === 0x18) {
+            this.processStatus(buf.subarray(3))
+            return
+        }
+
+        // Captured BF/CF reports share the legacy status body's leading fields. The trailing
+        // diagnostic data has a different layout; accept only the observed length and header.
+        if (
+            buf[1] === 0xbf &&
+            buf.length === 122 &&
+            buf[2] === 0 &&
+            buf.subarray(4, 8).equals(Buffer.from('2f0a0105', 'hex'))
+        ) {
+            this.processStatusData(buf.subarray(8, 8 + STATUS_RECORD_LENGTH - 2))
+            return
+        }
+        if (buf[1] === 0xcf && buf.length === 121 && buf.subarray(2, 7).equals(Buffer.from('002f0a0105', 'hex'))) {
+            this.processStatusData(buf.subarray(7, 7 + STATUS_RECORD_LENGTH - 2))
+            return
+        }
+
+        if (buf[1] === 0x3e && buf.length === 7) {
             this.processStatistics(buf)
         }
     }
@@ -570,7 +594,10 @@ export default class Device extends AABBDevice {
     }
 
     processStatus(curStatus: Buffer) {
-        const data = curStatus.subarray(2)
+        this.processStatusData(curStatus.subarray(2))
+    }
+
+    private processStatusData(data: Buffer) {
         const s = unpackStatus(data)
 
         this.publishProperty('status', APPLIANCE_STATES.map(s.state))
