@@ -110,8 +110,8 @@ const EC_CHIME_OFF = buf(
     'aa4432ec001801000002190500021900007000010082046300000000000101020305000018010000021905000219000070000100020463000000000001010203050055bb',
 )
 
-const CMD_AUTO_SELECT_OFF = buf('aa0ef02601004900000000004dbb')
-const EC_AUTO_SELECT_OFF = buf(
+const CMD_AUTOMATIC_SELECTION_OFF = buf('aa0ef02601004900000000004dbb')
+const EC_AUTOMATIC_SELECTION_OFF = buf(
     'aa4432ec001801000002190500021900007000010002046300000000000101020305000018010000021905000219000060000100020463000000000001010203050025bb',
 )
 
@@ -352,9 +352,9 @@ describe('N02', () => {
         assert.equal(feed([EC_RINSE_LEVEL_1]).properties.rinse_level, 1)
 
         const mc = feed([EC_RINSE_LEVEL_1])
-        mc.dev.setProperty('machine_clean_reminder', 'ON')
+        mc.dev.setProperty('tub_clean_reminder', 'ON')
         assert.deepEqual(commandsSent(mc.outbox), [CMD_MC_REMINDER_ON.toString('hex')])
-        assert.equal(feed([EC_MC_REMINDER_ON]).properties.machine_clean_reminder, 'ON')
+        assert.equal(feed([EC_MC_REMINDER_ON]).properties.tub_clean_reminder, 'ON')
 
         const time = feed([EC_MC_REMINDER_ON])
         time.dev.setProperty('time_indicator', 'OFF')
@@ -367,14 +367,14 @@ describe('N02', () => {
         assert.equal(feed([EC_CHIME_OFF]).properties.chime_sound, 'OFF')
 
         const auto = feed([EC_CHIME_OFF])
-        auto.dev.setProperty('auto_select', 'OFF')
-        assert.deepEqual(commandsSent(auto.outbox), [CMD_AUTO_SELECT_OFF.toString('hex')])
-        assert.equal(feed([EC_AUTO_SELECT_OFF]).properties.auto_select, 'OFF')
+        auto.dev.setProperty('automatic_selection', 'OFF')
+        assert.deepEqual(commandsSent(auto.outbox), [CMD_AUTOMATIC_SELECTION_OFF.toString('hex')])
+        assert.equal(feed([EC_AUTOMATIC_SELECTION_OFF]).properties.automatic_selection, 'OFF')
 
-        const clean = feed([EC_AUTO_SELECT_OFF])
-        clean.dev.setProperty('clean_light_reminder', 'OFF')
+        const clean = feed([EC_AUTOMATIC_SELECTION_OFF])
+        clean.dev.setProperty('clean_indicator_light', 'OFF')
         assert.deepEqual(commandsSent(clean.outbox), [CMD_CLEAN_LIGHT_OFF.toString('hex')])
-        assert.equal(feed([EC_CLEAN_LIGHT_OFF]).properties.clean_light_reminder, 'OFF')
+        assert.equal(feed([EC_CLEAN_LIGHT_OFF]).properties.clean_indicator_light, 'OFF')
     })
 
     test('settings writes are refused until a status record has been received', () => {

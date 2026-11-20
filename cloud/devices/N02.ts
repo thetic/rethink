@@ -4,7 +4,6 @@ import { DeviceDiscovery, type Connection } from '../homeassistant'
 import { type Metadata } from '../thinq'
 import { allowExtendedType } from '@/util/casting'
 import AABBDevice from './aabb_device'
-import log from '@/util/logging'
 import { Enum } from '@/util/enum'
 import { FLAG1_DOOR_OPEN, OPTION_HIGH_TEMP, PROCESS_STATES, APPLIANCE_STATES, unpackStatus } from './dishwasher_common'
 
@@ -83,9 +82,9 @@ const OPT4_NIGHT_DRY = 0x04
 
 // flags1 (byte 11), beyond the shared door bit. Each was caught toggling live; the bit positions
 // happen to match N17's FLAG1_* constants exactly, independently reconfirmed rather than assumed.
-const FLAG1_AUTO_SELECT = 0x10
-const FLAG1_MACHINE_CLEAN_REMINDER = 0x20
-const FLAG1_CLEAN_LIGHT_REMINDER = 0x40
+const FLAG1_AUTOMATIC_SELECTION = 0x10
+const FLAG1_TUB_CLEAN_REMINDER = 0x20
+const FLAG1_CLEAN_INDICATOR_LIGHT = 0x40
 // No N17 equivalent (N17 doesn't expose Night Dry at all); confirmed live, course-selection screen
 // through to Running.
 const FLAG1_NIGHT_DRY = 0x80
@@ -109,21 +108,21 @@ const FLAG3_END_OF_CYCLE_TONE = 0x04
 
 // Settings-snapshot bitmask (byte 4 of the F0 26 write), confirmed one bit at a time. Five of six
 // match N17's SETTING_* bits; Time Indicator's 0x10 is new.
-const SETTING_MACHINE_CLEAN_REMINDER = 0x01
+const SETTING_TUB_CLEAN_REMINDER = 0x01
 const SETTING_CHIME_SOUND = 0x04
-const SETTING_CLEAN_LIGHT_REMINDER = 0x08
+const SETTING_CLEAN_INDICATOR_LIGHT = 0x08
 const SETTING_TIME_INDICATOR = 0x10
-const SETTING_AUTO_SELECT = 0x20
+const SETTING_AUTOMATIC_SELECTION = 0x20
 const SETTING_END_OF_CYCLE_TONE = 0x40
 
 // MQTT property name -> settings-cache key, for the six on/off settings.
 const SETTING_SWITCH_KEYS = {
-    machine_clean_reminder: 'machineCleanReminder',
     chime_sound: 'chimeSound',
-    clean_light_reminder: 'cleanLightReminder',
-    time_indicator: 'timeIndicator',
-    auto_select: 'autoSelect',
     end_of_cycle_tone: 'endOfCycleTone',
+    tub_clean_reminder: 'tubCleanReminder',
+    clean_indicator_light: 'cleanIndicatorLight',
+    automatic_selection: 'automaticSelection',
+    time_indicator: 'timeIndicator',
 } as const
 
 export default class Device extends AABBDevice {
@@ -264,14 +263,14 @@ export default class Device extends AABBDevice {
                         step: 1,
                         optimistic: true,
                     },
-                    machine_clean_reminder: {
+                    tub_clean_reminder: {
                         platform: 'switch',
                         icon: 'mdi:bell-outline',
                         entity_category: 'config',
-                        unique_id: '$deviceid-machine_clean_reminder',
-                        state_topic: '$this/machine_clean_reminder',
-                        command_topic: '$this/machine_clean_reminder/set',
-                        name: 'Machine clean reminder',
+                        unique_id: '$deviceid-tub_clean_reminder',
+                        state_topic: '$this/tub_clean_reminder',
+                        command_topic: '$this/tub_clean_reminder/set',
+                        name: 'Tub clean reminder',
                         optimistic: true,
                     },
                     chime_sound: {
@@ -284,14 +283,14 @@ export default class Device extends AABBDevice {
                         name: 'Chime sound',
                         optimistic: true,
                     },
-                    clean_light_reminder: {
+                    clean_indicator_light: {
                         platform: 'switch',
                         icon: 'mdi:lightbulb',
                         entity_category: 'config',
-                        unique_id: '$deviceid-clean_light_reminder',
-                        state_topic: '$this/clean_light_reminder',
-                        command_topic: '$this/clean_light_reminder/set',
-                        name: 'Clean light reminder',
+                        unique_id: '$deviceid-clean_indicator_light',
+                        state_topic: '$this/clean_indicator_light',
+                        command_topic: '$this/clean_indicator_light/set',
+                        name: 'Clean indicator light',
                         optimistic: true,
                     },
                     time_indicator: {
@@ -304,14 +303,14 @@ export default class Device extends AABBDevice {
                         name: 'Time indicator',
                         optimistic: true,
                     },
-                    auto_select: {
+                    automatic_selection: {
                         platform: 'switch',
                         icon: 'mdi:auto-fix',
                         entity_category: 'config',
-                        unique_id: '$deviceid-auto_select',
-                        state_topic: '$this/auto_select',
-                        command_topic: '$this/auto_select/set',
-                        name: 'Auto select',
+                        unique_id: '$deviceid-automatic_selection',
+                        state_topic: '$this/automatic_selection',
+                        command_topic: '$this/automatic_selection/set',
+                        name: 'Automatic selection',
                         optimistic: true,
                     },
                     end_of_cycle_tone: {
@@ -465,11 +464,11 @@ export default class Device extends AABBDevice {
     // The latest settings read back from the appliance; undefined until the first status record.
     settings?: {
         rinseLevel: number
-        machineCleanReminder: boolean
+        tubCleanReminder: boolean
         chimeSound: boolean
-        cleanLightReminder: boolean
+        cleanIndicatorLight: boolean
         timeIndicator: boolean
-        autoSelect: boolean
+        automaticSelection: boolean
         endOfCycleTone: boolean
     }
 
@@ -480,11 +479,11 @@ export default class Device extends AABBDevice {
         if (!this.settings) return
         const s = this.settings
         let opts = 0
-        if (s.machineCleanReminder) opts |= SETTING_MACHINE_CLEAN_REMINDER
+        if (s.tubCleanReminder) opts |= SETTING_TUB_CLEAN_REMINDER
         if (s.chimeSound) opts |= SETTING_CHIME_SOUND
-        if (s.cleanLightReminder) opts |= SETTING_CLEAN_LIGHT_REMINDER
+        if (s.cleanIndicatorLight) opts |= SETTING_CLEAN_INDICATOR_LIGHT
         if (s.timeIndicator) opts |= SETTING_TIME_INDICATOR
-        if (s.autoSelect) opts |= SETTING_AUTO_SELECT
+        if (s.automaticSelection) opts |= SETTING_AUTOMATIC_SELECTION
         if (s.endOfCycleTone) opts |= SETTING_END_OF_CYCLE_TONE
         this.send(Buffer.from([0xf0, 0x26, s.rinseLevel, 0x00, opts, 0x00, 0x00, 0x00, 0x00, 0x00]))
     }
@@ -535,7 +534,7 @@ export default class Device extends AABBDevice {
             // A settings write is a full snapshot, so the current values must be known first - a
             // snapshot built from defaults would silently overwrite the appliance's other settings.
             if (!this.settings) {
-                log('N02', 'refusing settings write: no status record received yet')
+                this.log('refusing settings write: no status record received yet')
                 return
             }
             if (prop === 'rinse_level') {
@@ -595,19 +594,19 @@ export default class Device extends AABBDevice {
         // write path: until it has run once, settings writes are refused.
         this.settings = {
             rinseLevel: s.rinseLevel,
-            machineCleanReminder: (s.flags1 & FLAG1_MACHINE_CLEAN_REMINDER) !== 0,
-            cleanLightReminder: (s.flags1 & FLAG1_CLEAN_LIGHT_REMINDER) !== 0,
-            autoSelect: (s.flags1 & FLAG1_AUTO_SELECT) !== 0,
+            tubCleanReminder: (s.flags1 & FLAG1_TUB_CLEAN_REMINDER) !== 0,
+            cleanIndicatorLight: (s.flags1 & FLAG1_CLEAN_INDICATOR_LIGHT) !== 0,
+            automaticSelection: (s.flags1 & FLAG1_AUTOMATIC_SELECTION) !== 0,
             timeIndicator: (s.flags2 & FLAG2_TIME_INDICATOR) !== 0,
             chimeSound: (s.flags2 & FLAG2_CHIME_SOUND) !== 0,
             endOfCycleTone: (s.flags3 & FLAG3_END_OF_CYCLE_TONE) !== 0,
         }
         this.publishProperty('rinse_level', this.settings.rinseLevel)
-        this.publishProperty('machine_clean_reminder', this.settings.machineCleanReminder ? 'ON' : 'OFF')
+        this.publishProperty('tub_clean_reminder', this.settings.tubCleanReminder ? 'ON' : 'OFF')
         this.publishProperty('chime_sound', this.settings.chimeSound ? 'ON' : 'OFF')
-        this.publishProperty('clean_light_reminder', this.settings.cleanLightReminder ? 'ON' : 'OFF')
+        this.publishProperty('clean_indicator_light', this.settings.cleanIndicatorLight ? 'ON' : 'OFF')
         this.publishProperty('time_indicator', this.settings.timeIndicator ? 'ON' : 'OFF')
-        this.publishProperty('auto_select', this.settings.autoSelect ? 'ON' : 'OFF')
+        this.publishProperty('automatic_selection', this.settings.automaticSelection ? 'ON' : 'OFF')
         this.publishProperty('end_of_cycle_tone', this.settings.endOfCycleTone ? 'ON' : 'OFF')
     }
 }
